@@ -653,7 +653,7 @@ with st.sidebar:
 
     temporada_sel = st.selectbox(
         "Temporada",
-        options=["2024", "2023", "2022"],
+        options=["2026", "2025", "2024"],
         index=0,
     )
 

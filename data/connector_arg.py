@@ -31,9 +31,9 @@ BASE = "https://v3.football.api-sports.io"
 
 # Ligas disponibles
 LIGAS_ARG = {
-    "CLI": {"id": 128, "nombre": "Liga Profesional", "pais": "Argentina", "temporada": 2024},
-    "CAR": {"id": 130, "nombre": "Copa Argentina",   "pais": "Argentina", "temporada": 2024},
-    "PNA": {"id": 131, "nombre": "Primera Nacional", "pais": "Argentina", "temporada": 2024},
+    "CLI": {"id": 128, "nombre": "Liga Profesional", "pais": "Argentina", "temporada": 2026},
+    "CAR": {"id": 130, "nombre": "Copa Argentina",   "pais": "Argentina", "temporada": 2026},
+    "PNA": {"id": 131, "nombre": "Primera Nacional", "pais": "Argentina", "temporada": 2026},
 }
 
 # Normalización de nombres

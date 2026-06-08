@@ -1,0 +1,31 @@
+# En la raíz del proyecto
+echo "# Entorno
+.env
+*.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Base de datos local
+db/
+*.db
+*.sqlite
+
+# Credenciales
+credentials.json
+*.json
+
+# Archivos de trabajo / debug
+debug_supabase.py
+test_conexion.py
+test_api.py
+seed_supabase.py
+001_create_tables.sql
+plantel_performance.xlsx
+
+# IDE
+.vscode/
+.idea/" > .gitignore

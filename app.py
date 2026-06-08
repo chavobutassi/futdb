@@ -26,42 +26,31 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-# Ligas cubiertas por football-data.org (requiere key en .env)
-LIGAS_FD   = {"PL", "PD", "BL1", "SA", "FL1", "CL"}
-# Ligas via TheSportsDB (gratuito, sin key)
-LIGAS_TSDB = {"CLI", "MLS", "BSA", "MX", "COL"}
+# ── Ligas Argentina ──────────────────────────────────────────────────────────
+LIGAS = {
+    "CLI": {"nombre": "Liga Profesional", "pais": "Argentina", "temporada": 2024},
+    "CAR": {"nombre": "Copa Argentina",   "pais": "Argentina", "temporada": 2024},
+    "PNA": {"nombre": "Primera Nacional", "pais": "Argentina", "temporada": 2024},
+}
 
+# ── Módulo Plantel ───────────────────────────────────────────────────────────
 try:
-    from data.connector_futbol import ConectorFutbol, LIGAS, FBREF_LIGAS
-    _fd_key = os.getenv("FOOTBALL_DATA_KEY", "")
-    _conector = ConectorFutbol(api_key_football_data=_fd_key)
-    CONECTOR_OK = True
-    if not _fd_key:
-        logging.warning("[FUTDB] Sin API key de football-data.org — ligas europeas usarán datos ejemplo")
-except (ImportError, Exception) as _e:
-    CONECTOR_OK = False
-    _conector = None
-    LIGAS = {
-        "PL":  {"nombre": "Premier League",   "pais": "Inglaterra"},
-        "PD":  {"nombre": "LaLiga",           "pais": "España"},
-        "BL1": {"nombre": "Bundesliga",       "pais": "Alemania"},
-        "SA":  {"nombre": "Serie A",          "pais": "Italia"},
-        "FL1": {"nombre": "Ligue 1",          "pais": "Francia"},
-        "CL":  {"nombre": "Champions League", "pais": "Europa"},
-        "CLI": {"nombre": "Liga Profesional", "pais": "Argentina"},
-        "MLS": {"nombre": "MLS",              "pais": "USA"},
-        "BSA": {"nombre": "Brasileirão",      "pais": "Brasil"},
-    }
-    logging.warning(f"[FUTDB] connector_futbol no disponible: {_e}")
+    from pages.page_plantel import render_plantel
+    _PLANTEL_OK = True
+except ImportError as _ep:
+    _PLANTEL_OK = False
+    logging.warning(f"[FUTDB] page_plantel no disponible: {_ep}")
 
+# ── Conector Argentina ───────────────────────────────────────────────────────
 try:
-    from data.connector_arg import ConectorArg, LIGAS_TSDB as _LIGAS_TSDB_MAP
-    _rapidapi_key = os.getenv('RAPIDAPI_KEY', '')
-    _conector_arg = ConectorArg(rapidapi_key=_rapidapi_key)
+    from data.connector_arg import ConectorArg, LIGAS_ARG
+    _conector_arg = ConectorArg()
     CONECTOR_ARG_OK = True
+    if not _conector_arg.disponible:
+        logging.warning("[FUTDB] Sin APISPORTS_KEY — usando datos ejemplo")
 except (ImportError, Exception) as _ea:
     CONECTOR_ARG_OK = False
-    _conector_arg = None
+    _conector_arg   = None
     logging.warning(f"[FUTDB] connector_arg no disponible: {_ea}")
 
 # ─── Configuración de página ────────────────────────────────────────────────────
@@ -648,6 +637,7 @@ with st.sidebar:
             "🔄  Transferencias",
             "🏟  Estadios",
             "🥗  Nutrición",
+            "📋  Plantel",
         ],
         label_visibility="collapsed",
     )
@@ -655,24 +645,24 @@ with st.sidebar:
     st.markdown("<br>", unsafe_allow_html=True)
 
     liga_sel = st.selectbox(
-        "Liga activa",
+        "Competición",
         options=list(LIGAS.keys()),
-        format_func=lambda x: f"{LIGAS[x]['pais']} · {LIGAS[x]['nombre']}",
+        format_func=lambda x: LIGAS[x]["nombre"],
         index=0,
     )
 
     temporada_sel = st.selectbox(
         "Temporada",
-        options=["2024-2025", "2023-2024", "2022-2023"],
+        options=["2024", "2023", "2022"],
         index=0,
     )
 
     st.markdown("""
     <div style="margin-top:auto;padding:1.2rem 0 0;border-top:1px solid #1e2420;
                 font-family:'DM Mono',monospace;font-size:.65rem;color:#2e3a30;margin-top:2rem">
-        FUTDB · Analytics v1.0<br>
-        Fuente: FBref · Transfermarkt<br>
-        football-data.org
+        FUTDB · Analytics v2.0<br>
+        Fútbol Argentino · api-sports.io<br>
+        Supabase · Plantel en vivo
     </div>""", unsafe_allow_html=True)
 
 # ─── Páginas ─────────────────────────────────────────────────────────────────────
@@ -683,171 +673,135 @@ if pagina.startswith("🏠"):
     <div style="margin-bottom:1.5rem">
         <div style="font-family:'Barlow Condensed',sans-serif;font-size:2.2rem;
                     font-weight:900;color:#fff;letter-spacing:.02em;line-height:1.1">
-            Dashboard de<br><span style="color:#4ade80">Análisis</span>
+            Fútbol <span style="color:#4ade80">Argentino</span>
         </div>
         <div style="font-family:'DM Mono',monospace;font-size:.75rem;
                     color:#4b5a4d;margin-top:.4rem;letter-spacing:.05em">
-            {liga} · {temp}
+            Liga Profesional · Temporada 2024
         </div>
-    </div>
-    """.format(
-        liga=LIGAS[liga_sel]["nombre"],
-        temp=temporada_sel,
-    ), unsafe_allow_html=True)
+    </div>""", unsafe_allow_html=True)
+
+    with st.spinner("Cargando datos..."):
+        df_tabla = _conector_arg.tabla_posiciones("CLI") if CONECTOR_ARG_OK and _conector_arg else None
+        df_goles = _conector_arg.top_goleadores("CLI")  if CONECTOR_ARG_OK and _conector_arg else None
+        df_res   = _conector_arg.resultados_recientes("CLI", 5) if CONECTOR_ARG_OK and _conector_arg else None
+
+    lider     = df_tabla.iloc[0]["Club"] if df_tabla is not None and not df_tabla.empty else "—"
+    lider_pts = df_tabla.iloc[0]["Pts"]  if df_tabla is not None and not df_tabla.empty else "—"
+    tot_goles = int(df_tabla["GF"].sum()) if df_tabla is not None and not df_tabla.empty else "—"
+    equipos   = len(df_tabla) if df_tabla is not None else "—"
+    top_gol   = df_goles.iloc[0]["Jugador"] if df_goles is not None and not df_goles.empty else "—"
+    top_cant  = df_goles.iloc[0]["Goles"]   if df_goles is not None and not df_goles.empty else "—"
 
     render_kpis([
-        {"label": "Equipos en base",  "value": "380+",   "sub": "en todas las ligas",   "tipo": ""},
-        {"label": "Jugadores",        "value": "15.2K",  "sub": "con estadísticas",      "tipo": ""},
-        {"label": "Transferencias",   "value": "8.400",  "sub": "temporada 2024/25",     "tipo": "gold"},
-        {"label": "Valor total €",    "value": "€4.2B",  "sub": "mercado activo",        "tipo": "gold"},
-        {"label": "Ligas cubiertas",  "value": "9",      "sub": "incluye ARG y MLS",     "tipo": ""},
-        {"label": "Goles anotados",   "value": "3.847",  "sub": "en top 5 europeas",     "tipo": "coral"},
+        {"label": "Líder",           "value": lider,          "sub": f"{lider_pts} puntos",          "tipo": "gold"},
+        {"label": "Goles temporada", "value": str(tot_goles), "sub": "Liga Profesional 2024",        "tipo": "coral"},
+        {"label": "Equipos",         "value": str(equipos),   "sub": "en competencia",               "tipo": ""},
+        {"label": "Top goleador",    "value": top_gol,        "sub": f"{top_cant} goles",            "tipo": ""},
     ])
 
     col1, col2 = st.columns([3, 2])
 
     with col1:
-        section("Goleadores activos", "Top 5 — todas las ligas")
-        top5 = _top_goleadores_ejemplo().head(5)
-        rows_html = ""
-        for _, r in top5.iterrows():
-            rows_html += f"""
-            <tr>
-                <td>{rank_badge(int(r['#']))}</td>
-                <td class="highlight">{r['Jugador']}</td>
-                <td style="color:#4b5a4d;font-size:.8rem">{r['Club']}</td>
-                <td class="num" style="color:#4ade80;font-weight:500">{r['Goles']}</td>
-                <td class="num">{r['xG']}</td>
-            </tr>"""
-        st.markdown(f"""
-        <div class="table-card">
-            <div class="table-card-header">Tabla de goleadores <span class="tag">2024/25</span></div>
-            <table class="futdb-table">
-                <thead><tr>
-                    <th>#</th><th>Jugador</th><th>Club</th>
-                    <th class="num">Goles</th><th class="num">xG</th>
-                </tr></thead>
-                <tbody>{rows_html}</tbody>
-            </table>
-        </div>""", unsafe_allow_html=True)
-
-    with col2:
-        section("Señales", "mercado")
-        senales = [
-            {"titulo": "Harry Kane lidera Bundesliga",  "detalle": "29 goles · supera récord histórico",   "color": "#4ade80"},
-            {"titulo": "3 argentinos en top 20 xG",     "detalle": "Lautaro · Retegui · Mac Allister",     "color": "#f59e0b"},
-            {"titulo": "7 contratos vencen en 90 días", "detalle": "Valor total: €285M en libre",          "color": "#f87171"},
-            {"titulo": "MLS: +40% inversión vs 2023",   "detalle": "Record de gasto en Designated Players","color": "#60a5fa"},
-        ]
-        for s in senales:
+        section("Top 5 Goleadores", "Liga Profesional Argentina 2024")
+        if df_goles is not None and not df_goles.empty:
+            rows_html = ""
+            for _, r in df_goles.head(5).iterrows():
+                rows_html += f"""
+                <tr>
+                    <td>{rank_badge(int(r['#']))}</td>
+                    <td class="highlight">{r['Jugador']}</td>
+                    <td style="color:#4b5a4d;font-size:.8rem">{r['Club']}</td>
+                    <td class="num" style="color:#4ade80;font-weight:600;font-size:1rem">{r['Goles']}</td>
+                    <td class="num">{r['G/90']}</td>
+                </tr>"""
             st.markdown(f"""
-            <div class="signal-card">
-                <div class="signal-dot" style="background:{s['color']}"></div>
-                <div>
-                    <div class="signal-title">{s['titulo']}</div>
-                    <div class="signal-detail">{s['detalle']}</div>
-                </div>
+            <div class="table-card">
+                <div class="table-card-header">Goleadores <span class="tag">2024</span></div>
+                <table class="futdb-table">
+                    <thead><tr>
+                        <th>#</th><th>Jugador</th><th>Club</th>
+                        <th class="num">Goles</th><th class="num">G/90</th>
+                    </tr></thead>
+                    <tbody>{rows_html}</tbody>
+                </table>
             </div>""", unsafe_allow_html=True)
 
-    # Gráfico xG vs Goles
-    section("xG vs Goles reales", "sobreperformance y underperformance por jugador")
-    df_top = _top_goleadores_ejemplo()
-    fig = go.Figure()
-    fig.add_shape(type="line", x0=10, y0=10, x1=30, y1=30,
-                  line=dict(color="#2e3a30", width=1, dash="dot"))
-    fig.add_trace(go.Scatter(
-        x=df_top["xG"], y=df_top["Goles"],
-        mode="markers+text",
-        text=df_top["Jugador"].str.split().str[-1],
-        textposition="top center",
-        textfont=dict(family="DM Mono", size=10, color="#6b7a6d"),
-        marker=dict(
-            size=14,
-            color=df_top["Goles"] - df_top["xG"],
-            colorscale=[[0, "#f87171"], [0.5, "#4b5a4d"], [1, "#4ade80"]],
-            showscale=True,
-            colorbar=dict(
-                title=dict(text="Δ vs xG", font=dict(color="#4b5a4d", size=10)),
-                tickfont=dict(color="#4b5a4d", size=9),
-                thickness=8,
-            ),
-            line=dict(width=1, color="#0d0f0e"),
-        ),
-        hovertemplate="<b>%{text}</b><br>xG: %{x}<br>Goles: %{y}<extra></extra>",
-    ))
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="#111412",
-        font=dict(family="Barlow", color="#6b7a6d"),
-        height=320,
-        margin=dict(l=20, r=20, t=20, b=20),
-        xaxis=dict(title="xG (esperado)", gridcolor="#1a1f1c", zerolinecolor="#1a1f1c",
-                   title_font=dict(size=11), tickfont=dict(size=10, family="DM Mono")),
-        yaxis=dict(title="Goles reales", gridcolor="#1a1f1c", zerolinecolor="#1a1f1c",
-                   title_font=dict(size=11), tickfont=dict(size=10, family="DM Mono")),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    with col2:
+        section("Últimos resultados", "Liga Profesional")
+        if df_res is not None and not df_res.empty:
+            for _, r in df_res.iterrows():
+                st.markdown(f"""
+                <div class="signal-card">
+                    <div class="signal-dot" style="background:#4ade80"></div>
+                    <div>
+                        <div class="signal-title">{r.get('Local','—')} {r.get('Resultado','—')} {r.get('Visitante','—')}</div>
+                        <div class="signal-detail">{r.get('Jornada','—')} · {r.get('Fecha','—')}</div>
+                    </div>
+                </div>""", unsafe_allow_html=True)
+
+    if df_tabla is not None and not df_tabla.empty:
+        section("Distribución de puntos", "todos los equipos")
+        df_pts = df_tabla.sort_values("Pts", ascending=True)
+        fig = px.bar(df_pts, y="Club", x="Pts", orientation="h",
+                     color="Pts", color_continuous_scale=["#1e2420","#4ade80"],
+                     text="Pts")
+        fig.update_traces(marker_line_width=0, textposition="outside",
+                          textfont=dict(family="DM Mono", size=9, color="#4b5a4d"))
+        fig.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#111412",
+            height=max(320, len(df_pts)*24),
+            coloraxis_showscale=False,
+            margin=dict(l=10, r=40, t=10, b=10),
+            xaxis=dict(gridcolor="#1a1f1c", tickfont=dict(family="DM Mono", size=9, color="#4b5a4d")),
+            yaxis=dict(tickfont=dict(family="DM Mono", size=9, color="#6b7a6d"), title=None),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
 
 # ── 2. POSICIONES ──────────────────────────────────────────────────────────────
 elif pagina.startswith("📊"):
+    liga_info = LIGAS.get(liga_sel, LIGAS["CLI"])
     st.markdown(f"""
     <div style="font-family:'Barlow Condensed',sans-serif;font-size:2rem;
                 font-weight:900;color:#fff;margin-bottom:1.5rem">
-        {LIGAS[liga_sel]['pais']} <span style="color:#4ade80">{LIGAS[liga_sel]['nombre']}</span>
+        <span style="color:#4ade80">{liga_info['nombre']}</span>
         <span style="font-size:1rem;color:#4b5a4d;font-weight:300"> · {temporada_sel}</span>
     </div>""", unsafe_allow_html=True)
 
-    with st.spinner("Cargando datos..."):
-        df_pos = pd.DataFrame()
+    with st.spinner("Cargando tabla de posiciones..."):
+        df_pos = _conector_arg.tabla_posiciones(liga_sel) if CONECTOR_ARG_OK and _conector_arg else pd.DataFrame()
 
-        if liga_sel in LIGAS_TSDB:
-            # Liga sin cobertura en football-data.org → TheSportsDB (sin key)
-            if CONECTOR_ARG_OK and _conector_arg:
-                df_pos = _conector_arg.tabla_posiciones(liga_sel)
-            if not df_pos.empty:
-                st.caption(f"✅ Datos en vivo · TheSportsDB · {LIGAS.get(liga_sel, {}).get('nombre', liga_sel)}")
-        else:
-            # Liga europea / Champions → football-data.org (requiere key)
-            if CONECTOR_OK and _conector:
-                df_pos = _conector.tabla_posiciones(liga_sel)
-            if not df_pos.empty:
-                st.caption(f"✅ Datos en vivo · football-data.org · {LIGAS.get(liga_sel, {}).get('nombre', liga_sel)}")
+    if df_pos.empty:
+        st.caption("📡 Sin datos disponibles para esta competición")
+    else:
+        fuente = "api-sports.io (en vivo)" if CONECTOR_ARG_OK and _conector_arg and _conector_arg.disponible else "datos ejemplo"
+        st.caption(f"✅ {fuente} · {liga_info['nombre']} · Temporada {temporada_sel}")
 
-        if df_pos.empty:
-            df_pos = _tabla_ejemplo()
-            if liga_sel in LIGAS_TSDB:
-                st.caption("📡 Datos de ejemplo · verificá tu conexión (TheSportsDB es gratuito, sin key)")
-            else:
-                st.caption("📡 Datos de ejemplo · agregá tu API key de football-data.org en el archivo .env")
-
-    # KPIs de la liga
     render_kpis([
-        {"label": "Líder",        "value": str(df_pos.iloc[0].get("Club", df_pos.columns[1] and df_pos.iloc[0, 1])), "sub": f"{df_pos.iloc[0].get('Pts', df_pos.iloc[0,-1])} pts", "tipo": "gold"},
-        {"label": "Goles totales","value": str(int(df_pos.get("GF", pd.Series([0])).sum())), "sub": "en la temporada",  "tipo": "coral"},
-        {"label": "Promedio pts", "value": f"{df_pos.get('Pts', pd.Series([0])).mean():.1f}", "sub": "por equipo",     "tipo": ""},
-        {"label": "Equipos",      "value": str(len(df_pos)),  "sub": "en la competición", "tipo": ""},
+        {"label": "Líder",         "value": str(df_pos.iloc[0]["Club"]) if not df_pos.empty else "—", "sub": f"{df_pos.iloc[0]['Pts'] if not df_pos.empty else '—'} pts", "tipo": "gold"},
+        {"label": "Goles totales", "value": str(int(df_pos["GF"].sum())) if not df_pos.empty else "—", "sub": "en la temporada", "tipo": "coral"},
+        {"label": "Promedio pts",  "value": f"{df_pos['Pts'].mean():.1f}" if not df_pos.empty else "—", "sub": "por equipo", "tipo": ""},
+        {"label": "Equipos",       "value": str(len(df_pos)), "sub": "en competencia", "tipo": ""},
     ])
 
-    # Tabla principal
     rows_html = ""
     for i, r in df_pos.iterrows():
-        pos = r.get("#", i + 1)
-        club = r.get("Club", r.iloc[1])
-        pj  = r.get("PJ", "—")
-        g   = r.get("G",  "—")
-        e   = r.get("E",  "—")
-        p   = r.get("P",  "—")
-        gf  = r.get("GF", "—")
-        gc  = r.get("GC", "—")
-        dg  = r.get("DG", "—")
-        pts = r.get("Pts","—")
-        forma = r.get("Forma", "WWWWW")
-
+        pos   = r.get("#", i+1)
+        club  = r.get("Club","—")
+        pts   = r.get("Pts","—")
+        pj    = r.get("PJ","—")
+        g     = r.get("G","—")
+        e     = r.get("E","—")
+        p     = r.get("P","—")
+        gf    = r.get("GF","—")
+        gc    = r.get("GC","—")
+        dg    = r.get("DG","—")
+        forma = r.get("Forma","")
         zona_color = ""
-        if pos <= 4:   zona_color = "border-left:2px solid #60a5fa"
-        elif pos <= 6: zona_color = "border-left:2px solid #4ade80"
-        elif pos >= len(df_pos) - 2: zona_color = "border-left:2px solid #f87171"
-
+        if   pos <= 4:              zona_color = "border-left:2px solid #60a5fa"
+        elif pos <= 6:              zona_color = "border-left:2px solid #4ade80"
+        elif pos >= len(df_pos)-2:  zona_color = "border-left:2px solid #f87171"
         rows_html += f"""
         <tr style="{zona_color}">
             <td>{rank_badge(int(pos))}</td>
@@ -858,58 +812,47 @@ elif pagina.startswith("📊"):
             <td class="num" style="color:#f87171">{p}</td>
             <td class="num">{gf}</td>
             <td class="num">{gc}</td>
-            <td class="num" style="font-weight:500">{dg}</td>
-            <td class="num" style="font-weight:700;color:#fff">{pts}</td>
+            <td class="num">{dg}</td>
+            <td class="num" style="color:#fff;font-weight:600">{pts}</td>
             <td>{render_forma(str(forma))}</td>
         </tr>"""
 
     st.markdown(f"""
     <div class="table-card">
-        <div class="table-card-header">
-            Tabla de posiciones
-            <span style="display:flex;gap:.5rem;align-items:center">
-                <span style="display:flex;align-items:center;gap:4px;font-size:.72rem;color:#60a5fa">
-                    <span style="width:8px;height:8px;border-radius:2px;background:#60a5fa;display:inline-block"></span>Champions
-                </span>
-                <span style="display:flex;align-items:center;gap:4px;font-size:.72rem;color:#4ade80">
-                    <span style="width:8px;height:8px;border-radius:2px;background:#4ade80;display:inline-block"></span>Europa
-                </span>
-                <span style="display:flex;align-items:center;gap:4px;font-size:.72rem;color:#f87171">
-                    <span style="width:8px;height:8px;border-radius:2px;background:#f87171;display:inline-block"></span>Descenso
-                </span>
-            </span>
-        </div>
+        <div class="table-card-header">Tabla de posiciones <span class="tag">{temporada_sel}</span></div>
         <table class="futdb-table">
             <thead><tr>
-                <th>#</th><th>Club</th>
-                <th class="num">PJ</th><th class="num">G</th><th class="num">E</th><th class="num">P</th>
+                <th>#</th><th>Club</th><th class="num">PJ</th>
+                <th class="num">G</th><th class="num">E</th><th class="num">P</th>
                 <th class="num">GF</th><th class="num">GC</th><th class="num">DG</th>
                 <th class="num">Pts</th><th>Forma</th>
             </tr></thead>
             <tbody>{rows_html}</tbody>
         </table>
+    </div>
+    <div style="font-family:'DM Mono',monospace;font-size:.65rem;color:#2e3a30;margin-top:.5rem">
+        🔵 Copa Libertadores &nbsp;|&nbsp; 🟢 Copa Sudamericana &nbsp;|&nbsp; 🔴 Descenso
     </div>""", unsafe_allow_html=True)
 
-    # Gráfico de puntos
-    section("Distribución de puntos", "por posición en la tabla")
-    fig2 = px.bar(
-        df_pos, x=df_pos.get("Club", df_pos.columns[1]),
-        y=df_pos.get("Pts", df_pos.columns[-2]),
-        color=df_pos.get("Pts", df_pos.columns[-2]),
-        color_continuous_scale=["#f87171", "#4b5a4d", "#4ade80"],
-    )
-    fig2.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="#111412",
-        showlegend=False,
-        height=280,
-        margin=dict(l=10, r=10, t=10, b=60),
-        coloraxis_showscale=False,
-        xaxis=dict(tickfont=dict(size=9, family="DM Mono", color="#4b5a4d"), gridcolor="#1a1f1c"),
-        yaxis=dict(tickfont=dict(size=9, family="DM Mono", color="#4b5a4d"), gridcolor="#1a1f1c"),
-    )
-    fig2.update_traces(marker_line_width=0)
-    st.plotly_chart(fig2, use_container_width=True)
+    if not df_pos.empty:
+        section("Goles a favor vs Goles en contra", "comparativa de equipos")
+        fig2 = px.scatter(df_pos, x="GC", y="GF", text="Club", size="Pts",
+                          color="Pts", color_continuous_scale=["#1e2420","#4ade80"],
+                          size_max=30)
+        fig2.update_traces(textposition="top center",
+                           textfont=dict(family="DM Mono", size=8, color="#6b7a6d"),
+                           marker_line_width=0)
+        fig2.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#111412",
+            height=320, coloraxis_showscale=False,
+            margin=dict(l=10, r=10, t=20, b=20),
+            xaxis=dict(title="Goles en contra", gridcolor="#1a1f1c",
+                       tickfont=dict(family="DM Mono", size=9, color="#4b5a4d")),
+            yaxis=dict(title="Goles a favor", gridcolor="#1a1f1c",
+                       tickfont=dict(family="DM Mono", size=9, color="#4b5a4d")),
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+
 
 # ── 3. TOP JUGADORES ──────────────────────────────────────────────────────────
 elif pagina.startswith("⚽"):
@@ -917,174 +860,189 @@ elif pagina.startswith("⚽"):
     <div style="font-family:'Barlow Condensed',sans-serif;font-size:2rem;
                 font-weight:900;color:#fff;margin-bottom:1.5rem">
         Top <span style="color:#4ade80">Jugadores</span>
-        <span style="font-size:1rem;color:#4b5a4d;font-weight:300"> · estadísticas avanzadas</span>
+        <span style="font-size:1rem;color:#4b5a4d;font-weight:300"> · Liga Profesional Argentina 2024</span>
     </div>""", unsafe_allow_html=True)
 
-    tab1, tab2 = st.tabs(["⚽ Goleadores", "🎯 Asistidores"])
+    with st.spinner("Cargando estadísticas..."):
+        df_g = _conector_arg.top_goleadores("CLI")    if CONECTOR_ARG_OK and _conector_arg else pd.DataFrame()
+        df_a = _conector_arg.top_asistidores("CLI")   if CONECTOR_ARG_OK and _conector_arg else pd.DataFrame()
+        df_prox = _conector_arg.proximos_partidos("CLI", 8) if CONECTOR_ARG_OK and _conector_arg else pd.DataFrame()
+
+    tab1, tab2, tab3 = st.tabs(["⚽ Goleadores", "🎯 Asistidores", "📅 Próximos partidos"])
 
     with tab1:
-        df_g = _top_goleadores_ejemplo()
-        rows_html = ""
-        for _, r in df_g.iterrows():
-            diff = round(float(r["Goles"]) - float(r["xG"]), 1)
-            diff_color = "#4ade80" if diff > 0 else "#f87171"
-            diff_str = f"+{diff}" if diff > 0 else str(diff)
-            rows_html += f"""
-            <tr>
-                <td>{rank_badge(int(r['#']))}</td>
-                <td class="highlight">{r['Jugador']}</td>
-                <td style="color:#4b5a4d;font-size:.8rem">{r['Club']}</td>
-                <td style="color:#4b5a4d;font-size:.78rem">{r['Liga']}</td>
-                <td class="num" style="color:#4ade80;font-weight:600;font-size:1rem">{r['Goles']}</td>
-                <td class="num">{r['Partidos']}</td>
-                <td class="num">{r['xG']}</td>
-                <td class="num" style="color:{diff_color};font-weight:500">{diff_str}</td>
-                <td class="num">{r['G/90']}</td>
-            </tr>"""
-        st.markdown(f"""
-        <div class="table-card">
-            <div class="table-card-header">
-                Tabla de goleadores — todas las ligas <span class="tag">2024/25</span>
-            </div>
-            <table class="futdb-table">
-                <thead><tr>
-                    <th>#</th><th>Jugador</th><th>Club</th><th>Liga</th>
-                    <th class="num">Goles</th><th class="num">PJ</th>
-                    <th class="num">xG</th><th class="num">Δ xG</th><th class="num">G/90</th>
-                </tr></thead>
-                <tbody>{rows_html}</tbody>
-            </table>
-        </div>""", unsafe_allow_html=True)
+        if not df_g.empty:
+            rows_html = ""
+            for _, r in df_g.iterrows():
+                rows_html += f"""
+                <tr>
+                    <td>{rank_badge(int(r['#']))}</td>
+                    <td class="highlight">{r['Jugador']}</td>
+                    <td style="color:#4b5a4d;font-size:.8rem">{r['Club']}</td>
+                    <td class="num">{r['Nac.']}</td>
+                    <td class="num" style="color:#4ade80;font-weight:600;font-size:1rem">{r['Goles']}</td>
+                    <td class="num">{r['Asist.']}</td>
+                    <td class="num">{r['PJ']}</td>
+                    <td class="num" style="color:#f59e0b">{r['G/90']}</td>
+                </tr>"""
+            st.markdown(f"""
+            <div class="table-card">
+                <div class="table-card-header">Goleadores <span class="tag">Liga Profesional 2024</span></div>
+                <table class="futdb-table">
+                    <thead><tr>
+                        <th>#</th><th>Jugador</th><th>Club</th><th>Nac.</th>
+                        <th class="num">Goles</th><th class="num">Asist.</th>
+                        <th class="num">PJ</th><th class="num">G/90</th>
+                    </tr></thead>
+                    <tbody>{rows_html}</tbody>
+                </table>
+            </div>""", unsafe_allow_html=True)
 
-        section("xG vs Goles — overperformers y underperformers")
-        fig3 = go.Figure()
-        fig3.add_shape(type="line", x0=14, y0=14, x1=26, y1=26,
-                       line=dict(color="#2e3a30", width=1, dash="dash"))
-        fig3.add_annotation(x=25, y=24.5, text="Línea de igualdad",
-                            font=dict(size=9, color="#2e3a30"), showarrow=False)
-        fig3.add_trace(go.Scatter(
-            x=df_g["xG"], y=df_g["Goles"],
-            mode="markers+text",
-            text=df_g["Jugador"].str.split().str[-1],
-            textposition="top center",
-            textfont=dict(family="DM Mono", size=9, color="#6b7a6d"),
-            marker=dict(
-                size=df_g["Goles"] / 2 + 8,
-                color=df_g["Goles"] - df_g["xG"],
-                colorscale=[[0, "#f87171"], [0.5, "#1e2420"], [1, "#4ade80"]],
-                line=dict(color="#0d0f0e", width=1),
-                showscale=False,
-            ),
-            hovertemplate="<b>%{text}</b><br>xG: %{x}<br>Goles: %{y}<extra></extra>",
-        ))
-        fig3.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#111412",
-            height=350, margin=dict(l=20, r=20, t=20, b=20),
-            xaxis=dict(title="xG esperado", gridcolor="#1a1f1c",
-                       tickfont=dict(family="DM Mono", size=9, color="#4b5a4d")),
-            yaxis=dict(title="Goles reales", gridcolor="#1a1f1c",
-                       tickfont=dict(family="DM Mono", size=9, color="#4b5a4d")),
-        )
-        st.plotly_chart(fig3, use_container_width=True)
+            section("Goles por jugador", "top 10")
+            df_g10 = df_g.head(10).sort_values("Goles")
+            fig3 = px.bar(df_g10, y="Jugador", x="Goles", orientation="h",
+                          color="Goles", color_continuous_scale=["#1e2420","#4ade80"],
+                          text="Goles")
+            fig3.update_traces(marker_line_width=0, textposition="outside",
+                               textfont=dict(family="DM Mono", size=9, color="#4b5a4d"))
+            fig3.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#111412",
+                height=320, coloraxis_showscale=False,
+                margin=dict(l=10, r=40, t=10, b=10),
+                xaxis=dict(gridcolor="#1a1f1c", tickfont=dict(family="DM Mono", size=9, color="#4b5a4d")),
+                yaxis=dict(tickfont=dict(family="DM Mono", size=9, color="#6b7a6d"), title=None),
+            )
+            st.plotly_chart(fig3, use_container_width=True)
 
     with tab2:
-        asistidores = pd.DataFrame([
-            {"#":1,"Jugador":"Kevin De Bruyne","Club":"Man City",  "Liga":"Premier League","Asist":14,"xAG":11.2,"A/90":0.50},
-            {"#":2,"Jugador":"Mohamed Salah",  "Club":"Liverpool", "Liga":"Premier League","Asist":12,"xAG":10.1,"A/90":0.36},
-            {"#":3,"Jugador":"Cole Palmer",    "Club":"Chelsea",   "Liga":"Premier League","Asist":11,"xAG": 9.4,"A/90":0.31},
-            {"#":4,"Jugador":"Leroy Sané",     "Club":"Bayern",    "Liga":"Bundesliga",   "Asist":13,"xAG":10.8,"A/90":0.44},
-            {"#":5,"Jugador":"Lionel Messi",   "Club":"Inter Miami","Liga":"MLS",         "Asist":15,"xAG":12.1,"A/90":0.77},
-            {"#":6,"Jugador":"Lamine Yamal",   "Club":"Barcelona", "Liga":"LaLiga",       "Asist":12,"xAG": 9.8,"A/90":0.40},
-            {"#":7,"Jugador":"Phil Foden",     "Club":"Man City",  "Liga":"Premier League","Asist":10,"xAG": 8.6,"A/90":0.33},
-        ])
-        rows_html = ""
-        for _, r in asistidores.iterrows():
-            rows_html += f"""
-            <tr>
-                <td>{rank_badge(int(r['#']))}</td>
-                <td class="highlight">{r['Jugador']}</td>
-                <td style="color:#4b5a4d;font-size:.8rem">{r['Club']}</td>
-                <td style="color:#4b5a4d;font-size:.78rem">{r['Liga']}</td>
-                <td class="num" style="color:#60a5fa;font-weight:600;font-size:1rem">{r['Asist']}</td>
-                <td class="num">{r['xAG']}</td>
-                <td class="num">{r['A/90']}</td>
-            </tr>"""
-        st.markdown(f"""
-        <div class="table-card">
-            <div class="table-card-header">
-                Tabla de asistidores — todas las ligas <span class="tag">2024/25</span>
-            </div>
-            <table class="futdb-table">
-                <thead><tr>
-                    <th>#</th><th>Jugador</th><th>Club</th><th>Liga</th>
-                    <th class="num">Asist</th><th class="num">xAG</th><th class="num">A/90</th>
-                </tr></thead>
-                <tbody>{rows_html}</tbody>
-            </table>
-        </div>""", unsafe_allow_html=True)
+        if not df_a.empty:
+            rows_html = ""
+            for _, r in df_a.iterrows():
+                rows_html += f"""
+                <tr>
+                    <td>{rank_badge(int(r['#']))}</td>
+                    <td class="highlight">{r['Jugador']}</td>
+                    <td style="color:#4b5a4d;font-size:.8rem">{r['Club']}</td>
+                    <td class="num">{r['Nac.']}</td>
+                    <td class="num" style="color:#60a5fa;font-weight:600;font-size:1rem">{r['Asist.']}</td>
+                    <td class="num">{r['Goles']}</td>
+                    <td class="num">{r['PJ']}</td>
+                </tr>"""
+            st.markdown(f"""
+            <div class="table-card">
+                <div class="table-card-header">Asistidores <span class="tag">Liga Profesional 2024</span></div>
+                <table class="futdb-table">
+                    <thead><tr>
+                        <th>#</th><th>Jugador</th><th>Club</th><th>Nac.</th>
+                        <th class="num">Asist.</th><th class="num">Goles</th><th class="num">PJ</th>
+                    </tr></thead>
+                    <tbody>{rows_html}</tbody>
+                </table>
+            </div>""", unsafe_allow_html=True)
+
+    with tab3:
+        if not df_prox.empty:
+            rows_html = ""
+            for _, r in df_prox.iterrows():
+                rows_html += f"""
+                <tr>
+                    <td style="color:#4b5a4d;font-family:'DM Mono',monospace;font-size:.75rem">{r.get('Fecha','—')}</td>
+                    <td style="color:#f59e0b;font-family:'DM Mono',monospace;font-size:.75rem">{r.get('Hora','—')}</td>
+                    <td style="color:#4b5a4d;font-size:.75rem">{r.get('Jornada','—')}</td>
+                    <td class="highlight" style="text-align:right">{r.get('Local','—')}</td>
+                    <td style="color:#4b5a4d;text-align:center;font-size:.8rem">vs</td>
+                    <td class="highlight">{r.get('Visitante','—')}</td>
+                    <td style="color:#4b5a4d;font-size:.75rem">{r.get('Estadio','—')}</td>
+                </tr>"""
+            st.markdown(f"""
+            <div class="table-card">
+                <div class="table-card-header">Próximos partidos <span class="tag">Liga Profesional</span></div>
+                <table class="futdb-table">
+                    <thead><tr>
+                        <th>Fecha</th><th>Hora</th><th>Jornada</th>
+                        <th style="text-align:right">Local</th><th></th>
+                        <th>Visitante</th><th>Estadio</th>
+                    </tr></thead>
+                    <tbody>{rows_html}</tbody>
+                </table>
+            </div>""", unsafe_allow_html=True)
+        else:
+            st.info("No hay próximos partidos programados.")
+
 
 # ── 4. TRANSFERENCIAS ─────────────────────────────────────────────────────────
 elif pagina.startswith("🔄"):
     st.markdown("""
     <div style="font-family:'Barlow Condensed',sans-serif;font-size:2rem;
-                font-weight:900;color:#fff;margin-bottom:1.5rem">
-        Mercado de <span style="color:#f59e0b">Transferencias</span>
+                font-weight:900;color:#fff;margin-bottom:.4rem">
+        Transferencias <span style="color:#f59e0b">Argentinas</span>
+    </div>
+    <div style="font-family:'DM Mono',monospace;font-size:.72rem;color:#4b5a4d;margin-bottom:1.5rem">
+        Movimientos del mercado · jugadores argentinos en el mundo
     </div>""", unsafe_allow_html=True)
 
-    df_t = _transferencias_ejemplo()
+    df_t = _conector_arg.transferencias_recientes() if CONECTOR_ARG_OK and _conector_arg else pd.DataFrame()
 
-    render_kpis([
-        {"label": "Mayor traspaso", "value": "€121M", "sub": "Enzo Fernández a Chelsea", "tipo": "gold"},
-        {"label": "ARG al exterior","value": "34",    "sub": "transferencias 2024/25",   "tipo": ""},
-        {"label": "Promedio €",     "value": "€52M",  "sub": "top 10 traspasos",         "tipo": ""},
-        {"label": "Libres en 90d",  "value": "127",   "sub": "jugadores sin contrato",   "tipo": "coral"},
-    ])
+    if df_t.empty:
+        st.info("Sin datos de transferencias disponibles.")
+    else:
+        mayor = df_t.loc[df_t["€ M"].idxmax()]
+        arg_ext = len(df_t[df_t["Destino"].str.contains(r"(?i)\((?!ARG)", regex=True)])
 
-    rows_html = ""
-    for i, r in df_t.iterrows():
-        monto = r["€ M"]
-        monto_str = f"€{monto}M" if pd.notna(monto) and monto > 0 else "—"
-        tipo_color = {"Traspaso": "#4ade80", "Préstamo": "#60a5fa", "Libre": "#f87171", "Renovación": "#f59e0b"}.get(r["Tipo"], "#4b5a4d")
-        rows_html += f"""
-        <tr>
-            <td class="highlight">{r['Jugador']}</td>
-            <td style="color:#4b5a4d;font-size:.82rem">{r['Origen']}</td>
-            <td style="font-size:.75rem;color:#4b5a4d">→</td>
-            <td class="highlight">{r['Destino']}</td>
-            <td class="num" style="color:#f59e0b;font-weight:600">{monto_str}</td>
-            <td><span style="font-family:'DM Mono',monospace;font-size:.7rem;
-                color:{tipo_color};background:{tipo_color}18;
-                padding:.15rem .5rem;border-radius:4px">{r['Tipo']}</span></td>
-            <td class="num" style="color:#4b5a4d;font-size:.78rem">{r['Temp.']}</td>
-        </tr>"""
-    st.markdown(f"""
-    <div class="table-card">
-        <div class="table-card-header">Transferencias destacadas <span class="tag">histórico</span></div>
-        <table class="futdb-table">
-            <thead><tr>
-                <th>Jugador</th><th>Origen</th><th></th><th>Destino</th>
-                <th class="num">Monto</th><th>Tipo</th><th class="num">Temp.</th>
-            </tr></thead>
-            <tbody>{rows_html}</tbody>
-        </table>
-    </div>""", unsafe_allow_html=True)
+        render_kpis([
+            {"label": "Mayor traspaso",   "value": f"€{int(mayor['€ M'])}M", "sub": f"{mayor['Jugador']} · {mayor['Destino']}", "tipo": "gold"},
+            {"label": "ARG al exterior",  "value": str(arg_ext),             "sub": "jugadores exportados",                      "tipo": ""},
+            {"label": "Valor promedio",   "value": f"€{df_t['€ M'].mean():.0f}M", "sub": "por transferencia",                   "tipo": ""},
+            {"label": "Registros",        "value": str(len(df_t)),           "sub": "movimientos curados",                       "tipo": "coral"},
+        ])
 
-    section("Volumen de transferencias por temporada", "en millones de €")
-    df_hist = pd.DataFrame({
-        "Temporada": ["2018/19","2019/20","2020/21","2021/22","2022/23","2023/24","2024/25"],
-        "Volumen €M": [7200, 5800, 4100, 6500, 7800, 9100, 8400],
-    })
-    fig4 = px.area(df_hist, x="Temporada", y="Volumen €M",
-                   color_discrete_sequence=["#4ade80"])
-    fig4.update_traces(fill="tozeroy", fillcolor="rgba(74,222,128,0.08)",
-                       line=dict(width=2))
-    fig4.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#111412",
-        height=260, margin=dict(l=10, r=10, t=10, b=30),
-        xaxis=dict(gridcolor="#1a1f1c", tickfont=dict(family="DM Mono", size=9, color="#4b5a4d")),
-        yaxis=dict(gridcolor="#1a1f1c", tickfont=dict(family="DM Mono", size=9, color="#4b5a4d")),
-    )
-    st.plotly_chart(fig4, use_container_width=True)
+        rows_html = ""
+        for i, r in df_t.iterrows():
+            monto = r["€ M"]
+            monto_str = f"€{int(monto)}M" if pd.notna(monto) and monto > 0 else "—"
+            tipo_color = {"Traspaso": "#4ade80", "Préstamo": "#60a5fa", "Libre": "#f87171", "Renovación": "#f59e0b"}.get(r["Tipo"], "#4b5a4d")
+            rows_html += f"""
+            <tr>
+                <td class="highlight">{r['Jugador']}</td>
+                <td style="color:#4b5a4d;font-size:.82rem">{r['Origen']}</td>
+                <td style="font-size:.75rem;color:#4b5a4d;text-align:center">→</td>
+                <td class="highlight">{r['Destino']}</td>
+                <td class="num" style="color:#f59e0b;font-weight:600">{monto_str}</td>
+                <td><span style="font-family:'DM Mono',monospace;font-size:.7rem;
+                    color:{tipo_color};background:{tipo_color}18;
+                    padding:.15rem .5rem;border-radius:4px">{r['Tipo']}</span></td>
+                <td class="num" style="color:#4b5a4d;font-size:.78rem">{r['Temp.']}</td>
+            </tr>"""
+
+        st.markdown(f"""
+        <div class="table-card">
+            <div class="table-card-header">Transferencias destacadas <span class="tag">jugadores ARG</span></div>
+            <table class="futdb-table">
+                <thead><tr>
+                    <th>Jugador</th><th>Origen</th><th></th><th>Destino</th>
+                    <th class="num">Monto</th><th>Tipo</th><th class="num">Temp.</th>
+                </tr></thead>
+                <tbody>{rows_html}</tbody>
+            </table>
+        </div>""", unsafe_allow_html=True)
+
+        section("Montos por transferencia", "en millones de €")
+        df_sort = df_t[df_t["€ M"] > 0].sort_values("€ M", ascending=True)
+        fig4 = px.bar(df_sort, y="Jugador", x="€ M", orientation="h",
+                      color="€ M", color_continuous_scale=["#2a1f00","#f59e0b"],
+                      text="€ M")
+        fig4.update_traces(marker_line_width=0,
+                           texttemplate="€%{text:.0f}M", textposition="outside",
+                           textfont=dict(family="DM Mono", size=9, color="#4b5a4d"))
+        fig4.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#111412",
+            height=max(280, len(df_sort)*28), coloraxis_showscale=False,
+            margin=dict(l=10, r=60, t=10, b=10),
+            xaxis=dict(gridcolor="#1a1f1c", tickfont=dict(family="DM Mono", size=9, color="#4b5a4d")),
+            yaxis=dict(tickfont=dict(family="DM Mono", size=9, color="#6b7a6d"), title=None),
+        )
+        st.plotly_chart(fig4, use_container_width=True)
+
 
 # ── 5. ESTADIOS ───────────────────────────────────────────────────────────────
 elif pagina.startswith("🏟"):
@@ -1197,3 +1155,11 @@ elif pagina.startswith("🥗"):
         yaxis=dict(gridcolor="#1a1f1c", tickfont=dict(family="DM Mono", size=9, color="#4b5a4d"), range=[2500, 4200]),
     )
     st.plotly_chart(fig6, use_container_width=True)
+
+# ── 7. PLANTEL ────────────────────────────────────────────────────────────────
+elif pagina.startswith("📋"):
+    if _PLANTEL_OK:
+        render_plantel()
+    else:
+        st.error("Módulo Plantel no disponible. Verificá que `pages/page_plantel.py` y `data/connector_plantel.py` estén en el proyecto.")
+
